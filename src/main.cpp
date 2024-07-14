@@ -1,6 +1,5 @@
 #include <Arduino.h>
-#include <avr/interrupt.h>
-#include <avr/sleep.h>
+#include <Tone.h>
 
 typedef enum E_LIGHT {
   L_RED = 0,
@@ -11,60 +10,94 @@ typedef enum E_LIGHT {
 
 #define RED_LED 2
 #define BLUE_LED 7
-#define YELLOW_LED 5
+#define YELLOW_LED 4
 #define GREEN_LED 12
+
+#define WEIRD_ROW 13
 
 #define RED_BTN 8
 #define BLUE_BTN 9
 #define YELLOW_BTN 10
 #define GREEN_BTN 11
 
-#define BUZZER 6
+#define START_STOP_BTN 3
 
-#define NUM_LEVELS 10
+#define BUZZER_1 5
+#define BUZZER_2 6
+
+Tone BUZZERS[2];
+
+typedef struct sound {
+  int one;
+  int two;
+} sound;
+
+#define C_WIN sound{NOTE_C4, NOTE_E4}
+#define C_LOSE sound{NOTE_C4, NOTE_D4}
+
+#define C_RED sound{NOTE_A4, NOTE_A4}
+#define C_BLUE sound{NOTE_E4, NOTE_E4}
+#define C_YELLOW sound{NOTE_CS4, NOTE_CS4}
+#define C_GREEN sound{NOTE_E3, NOTE_E3};
+
+#define NUM_LEVELS 15
+
+int l_delay = 500;
+#define MIN_DELAY 200
+#define DELAY_MOD 50
 
 int current_level = 0;
+bool playing = false;
 
-E_LIGHT levels[30];
+E_LIGHT levels[NUM_LEVELS];
+
+void buzzer_play(sound s) {
+  BUZZERS[0].play(s.one);
+  BUZZERS[1].play(s.two);
+}
+void buzzer_stop() {
+  BUZZERS[0].stop();
+  BUZZERS[1].stop();
+}
 
 void show_light(E_LIGHT light) {
   int led;
-  int freq;
+  sound play;
   switch(light) {
     case L_RED:
       Serial.println("showing red light");
       led = RED_LED;
-      freq = 255;
+      play = C_RED;
       break;
     case L_BLUE:
       Serial.println("showing blue light");
       led = BLUE_LED;
-      freq = 200;
+      play = C_BLUE;
       break;
     case L_YELLOW:
       Serial.println("showing yellow light");
       led = YELLOW_LED;
-      freq = 125;
+      play = C_YELLOW;
       break;
     case L_GREEN:
       Serial.println("showing green light");
       led = GREEN_LED;
-      freq = 75;
+      play = C_GREEN;
       break;
     default:
       Serial.print("passed: ");
       Serial.print((int) light);
       Serial.println(" to show_light. this light is unknown.");
       led = RED_LED;
-      freq = 255;
+      play = C_RED;
       break;
   }
   digitalWrite(led, HIGH);
-  analogWrite(BUZZER, freq);
-  delay(1000);
+  buzzer_play(play);
+  delay(l_delay);
   digitalWrite(led, LOW);
-  analogWrite(BUZZER, LOW);
-  delay(500);
+  buzzer_stop();
+  delay(max(100, l_delay));
 }
 
 E_LIGHT get_selection() {
@@ -79,6 +112,7 @@ E_LIGHT get_selection() {
     } else if (digitalRead(GREEN_BTN) == LOW) {
       selection = L_GREEN;
     } 
+    delay(5);
   }
   return (E_LIGHT)selection;
 }
@@ -87,9 +121,10 @@ void lose() {
   Serial.println("LOSE!");
   while(true) {
     digitalWrite(RED_LED, HIGH);
-    analogWrite(BUZZER, 255);
+    buzzer_play(C_LOSE);
     delay(500);
     digitalWrite(RED_LED, LOW);
+    buzzer_stop();
     delay(500);
   }
 }
@@ -101,13 +136,15 @@ void win() {
     digitalWrite(BLUE_LED, HIGH);
     digitalWrite(GREEN_LED, HIGH);
     digitalWrite(YELLOW_LED, HIGH);
-    analogWrite(BUZZER, 50);
+    digitalWrite(WEIRD_ROW, HIGH);
+    buzzer_play(C_WIN);
     delay(500);
     digitalWrite(RED_LED, LOW);
     digitalWrite(BLUE_LED, LOW);
     digitalWrite(GREEN_LED, LOW);
     digitalWrite(YELLOW_LED, LOW);
-    analogWrite(BUZZER, LOW);
+    digitalWrite(WEIRD_ROW, LOW);
+    buzzer_stop();
     delay(500);
   }
 }
@@ -151,6 +188,8 @@ void debug_output() {
 }
 
 void setup() {
+  randomSeed(analogRead(0));
+
   Serial.begin(9600);
   // while(!Serial.available()) {
   //   ; // wait for it to do that
@@ -166,7 +205,10 @@ void setup() {
   pinMode(GREEN_BTN, INPUT_PULLUP);
   pinMode(YELLOW_BTN, INPUT_PULLUP);
 
-  randomSeed(analogRead(0));
+  pinMode(START_STOP_BTN, INPUT_PULLUP);
+
+  BUZZERS[0].begin(BUZZER_1);
+  BUZZERS[1].begin(BUZZER_2);
 
   // FIXME: remove when finished debugging
   //debug_output();
@@ -185,9 +227,19 @@ void setup() {
   // debug_output();
 
   Serial.println("setup");
+
+  digitalWrite(WEIRD_ROW, HIGH);
 }
 
 void loop() {
+  while(!playing) {
+    current_level = 0;
+
+    if(digitalRead(START_STOP_BTN) == LOW) {
+      playing = true;
+    }
+  }
+
   current_level++;
 
   Serial.print("on level ");
@@ -205,6 +257,14 @@ void loop() {
       lose();
     }
     show_light(selection);
+
+    if(l_delay >= MIN_DELAY) {
+      if(l_delay - DELAY_MOD <= MIN_DELAY) {
+        l_delay = MIN_DELAY;
+      } else {
+        l_delay -= DELAY_MOD;
+      }
+    }
   }
   delay(500);
 }
